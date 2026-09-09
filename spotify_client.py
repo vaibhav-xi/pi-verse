@@ -53,7 +53,7 @@ class SpotifyState:
         print("That page will fail to load - that's expected.")
         response_url = input("Copy the FULL URL from the address bar and paste it here: ").strip()
         code = self.auth_manager.parse_response_code(response_url)
-        self.auth_manager.get_access_token(code, as_dict=False)
+        self.auth_manager.get_access_token(code)
         print("Authenticated. Token cached for future runs.\n")
 
     def poll_once(self):

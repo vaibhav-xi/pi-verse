@@ -11,7 +11,6 @@ import config
 TIMESTAMP_RE = re.compile(r"\[(\d{2}):(\d{2})\.(\d{2,3})\]")
 USER_AGENT = "PiSpotifyLyrics/1.0 (+personal Raspberry Pi project)"
 
-
 def parse_lrc(lrc_text):
     lines = []
     for raw in lrc_text.splitlines():
