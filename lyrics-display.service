@@ -1,0 +1,16 @@
+[Unit]
+Description=Pi Verse
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zero
+WorkingDirectory=/home/zero/projects/pi-verse
+EnvironmentFile=/home/zero/projects/pi-verse/.env
+ExecStart=/home/zero/projects/pi-verse/venv/bin/python /home/zero/projects/pi-verse/main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

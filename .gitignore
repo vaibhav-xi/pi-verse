@@ -1,0 +1,17 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Local caches (tokens, lyrics, album art)
+.cache/
+
+# OS junk
+.DS_Store
+Thumbs.db
