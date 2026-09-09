@@ -18,20 +18,29 @@ ART_SIZE = 108
 
 class LyricsUI:
     def __init__(self, windowed=False, fbdev=None):
-        if not windowed:
-            os.environ.setdefault("SDL_VIDEODRIVER", "fbcon")
-            os.environ.setdefault("SDL_FBDEV", fbdev or "/dev/fb1")
-            os.environ.setdefault("SDL_NOMOUSE", "1")
+        self.windowed = windowed
+        self.fb_file = None
 
-        pygame.init()
-        flags = 0 if windowed else pygame.FULLSCREEN
-        size = (config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
-        try:
-            self.screen = pygame.display.set_mode(size, flags)
-        except pygame.error as exc:
-            raise SystemExit(
-                f"Could not open the display ({exc}).\n"
-            ) from exc
+        if windowed:
+            pygame.init()
+            size = (config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
+            try:
+                self.screen = pygame.display.set_mode(size)
+            except pygame.error as exc:
+                raise SystemExit(
+                    f"Could not open a window ({exc}).\n"
+                    "If you're on SSH without a desktop or X11 forwarding, "
+                    "drop --windowed and let it write to the Pi's screen directly."
+                ) from exc
+        else:
+            os.environ["SDL_VIDEODRIVER"] = "dummy"
+            pygame.init()
+            pygame.display.set_mode((1, 1))
+            size = (config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
+            self.screen = pygame.Surface(size, depth=16, masks=(0xF800, 0x07E0, 0x001F, 0))
+            fb_path = fbdev or "/dev/fb1"
+            self.fb_file = open(fb_path, "wb")
+
         pygame.mouse.set_visible(False)
         self.clock = pygame.time.Clock()
 
@@ -43,6 +52,15 @@ class LyricsUI:
         self._art_cache = {}
         self._current_art_url = None
         self._current_art_surface = None
+        
+    def _present(self):
+        if self.windowed:
+            pygame.display.flip()
+        else:
+            self.fb_file.seek(0)
+            self.fb_file.write(self.screen.get_buffer().raw)
+            self.fb_file.flush()
+        self.clock.tick(30)
 
     def _load_font(self, size, bold=False):
         try:
@@ -97,8 +115,7 @@ class LyricsUI:
 
         if not snapshot or not snapshot.get("track_id"):
             self._draw_center("Nothing playing", self.font_title, DIM_COLOR, w // 2, h // 2)
-            pygame.display.flip()
-            self.clock.tick(30)
+            self._present()
             return
 
         art_surface = self._get_album_art(snapshot.get("album_art_url"))
@@ -139,8 +156,7 @@ class LyricsUI:
         else:
             self._draw_center("Loading lyrics...", self.font_lyric_dim, DIM_COLOR, w // 2, center_y)
 
-        pygame.display.flip()
-        self.clock.tick(30)
+        self._present()
 
     def pump_events(self):
         for event in pygame.event.get():
