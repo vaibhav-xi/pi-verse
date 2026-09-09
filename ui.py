@@ -16,7 +16,7 @@ ACCENT_COLOR = (30, 215, 96)
 ART_SIZE = 108
 
 # Normal distance between separate lyric lines.
-VERSE_GAP = 34
+VERSE_GAP = 20
 
 # Smaller distance between wrapped parts of the same lyric.
 WRAPPED_GAP = 22
@@ -221,67 +221,93 @@ class LyricsUI:
         if font.size(text)[0] <= max_width:
             return [text]
 
-        pieces = re.split(
-            r"(?<=[,/])\s+|(?<=[\(\[\{])\s*|(?=\s*[\)\]\}])",
-            text,
+        protected = []
+        pattern = re.compile(
+            r"\([^()]*\)|"
+            r"\[[^\[\]]*\]|"
+            r"\{[^{}]*\}"
         )
 
-        pieces = [
-            piece.strip()
-            for piece in pieces
-            if piece.strip()
-        ]
+        last = 0
 
-        if len(pieces) > 1:
-            lines = []
-            current = ""
-
-            for piece in pieces:
-                candidate = (
-                    piece
-                    if not current
-                    else f"{current} {piece}"
+        for match in pattern.finditer(text):
+            if match.start() > last:
+                protected.append(
+                    ("text", text[last:match.start()])
                 )
 
-                if (
-                    font.size(candidate)[0]
-                    <= max_width
-                ):
-                    current = candidate
-                else:
-                    if current:
-                        lines.append(current)
+            protected.append(
+                ("group", match.group())
+            )
 
-                    # A single punctuation section may
-                    # itself still be too long.
-                    if (
-                        font.size(piece)[0]
-                        <= max_width
-                    ):
-                        current = piece
-                    else:
-                        lines.extend(
-                            self._word_wrap(
-                                piece,
-                                font,
-                                max_width,
-                            )
-                        )
-                        current = ""
+            last = match.end()
 
+        if last < len(text):
+            protected.append(
+                ("text", text[last:])
+            )
+
+        pieces = []
+
+        for kind, value in protected:
+            if kind == "group":
+                pieces.append(value)
+                continue
+
+            parts = re.split(
+                r"(?<=[,/])\s+|(?<=[\)\]\}])\s+",
+                value,
+            )
+
+            for part in parts:
+                part = part.strip()
+
+                if part:
+                    pieces.append(part)
+
+        # Build lines.
+
+        lines = []
+        current = ""
+
+        for piece in pieces:
+
+            candidate = (
+                piece
+                if not current
+                else f"{current} {piece}"
+            )
+
+            if font.size(candidate)[0] <= max_width:
+                current = candidate
+                continue
+
+            # The piece doesn't fit.
             if current:
                 lines.append(current)
 
-            if lines:
-                return lines
+            # If the piece itself fits, start the next line with it.
+            if font.size(piece)[0] <= max_width:
+                current = piece
 
-        # Final fallback: normal word wrapping.
+            else:
+                # Extremely long piece/group.
+                wrapped = self._word_wrap(
+                    piece,
+                    font,
+                    max_width,
+                )
 
-        return self._word_wrap(
-            text,
-            font,
-            max_width,
-        )
+                if wrapped:
+                    lines.extend(wrapped[:-1])
+                    current = wrapped[-1]
+                else:
+                    current = ""
+
+        if current:
+            lines.append(current)
+
+        return lines
 
     @staticmethod
     def _word_wrap(
