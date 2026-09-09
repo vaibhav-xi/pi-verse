@@ -2,7 +2,7 @@
 
 import threading
 import time
-
+from pathlib import Path
 import spotipy
 from spotipy.cache_handler import CacheFileHandler
 from spotipy.oauth2 import SpotifyPKCE
@@ -12,6 +12,7 @@ import config
 
 class SpotifyState:
     def __init__(self):
+        Path(config.TOKEN_CACHE_PATH).parent.mkdir(parents=True, exist_ok=True)
         cache_handler = CacheFileHandler(cache_path=config.TOKEN_CACHE_PATH)
         self.auth_manager = SpotifyPKCE(
             client_id=config.SPOTIFY_CLIENT_ID,

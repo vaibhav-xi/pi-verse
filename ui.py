@@ -24,10 +24,15 @@ class LyricsUI:
             os.environ.setdefault("SDL_NOMOUSE", "1")
 
         pygame.init()
-        pygame.mouse.set_visible(False)
         flags = 0 if windowed else pygame.FULLSCREEN
         size = (config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
-        self.screen = pygame.display.set_mode(size, flags)
+        try:
+            self.screen = pygame.display.set_mode(size, flags)
+        except pygame.error as exc:
+            raise SystemExit(
+                f"Could not open the display ({exc}).\n"
+            ) from exc
+        pygame.mouse.set_visible(False)
         self.clock = pygame.time.Clock()
 
         self.font_title = self._load_font(20, bold=True)
