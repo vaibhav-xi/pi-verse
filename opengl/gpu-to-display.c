@@ -145,9 +145,7 @@ static void gpu_init(GpuCtx *ctx, const char *render_node, int width, int height
         DIE("eglBindAPI(EGL_OPENGL_ES_API) failed: %s", egl_error_string(eglGetError()));
 
     EGLint cfg_attribs[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
         EGL_NONE
     };
     EGLConfig config;
@@ -163,8 +161,14 @@ static void gpu_init(GpuCtx *ctx, const char *render_node, int width, int height
     ctx->surface = eglCreatePbufferSurface(ctx->display, config, pbuf_attribs);
     if (ctx->surface == EGL_NO_SURFACE) DIE("eglCreatePbufferSurface failed: %s", egl_error_string(eglGetError()));
 
-    if (!eglMakeCurrent(ctx->display, ctx->surface, ctx->surface, ctx->context))
-        DIE("eglMakeCurrent failed: %s", egl_error_string(eglGetError()));
+    const char *extensions = eglQueryString(ctx->display, EGL_EXTENSIONS);
+    LOG("EGL_KHR_surfaceless_context supported: %s",
+        (extensions && strstr(extensions, "EGL_KHR_surfaceless_context")) ? "yes" : "NOT ADVERTISED (trying anyway)");
+
+    if (!eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx->context))
+        DIE("eglMakeCurrent (surfaceless) failed: %s. This driver may genuinely "
+            "require a real surface - tell me and I'll switch to a GBM-backed one.",
+            egl_error_string(eglGetError()));
 
     LOG("GL_RENDERER: %s", glGetString(GL_RENDERER));
     LOG("GL_VERSION:  %s", glGetString(GL_VERSION));
