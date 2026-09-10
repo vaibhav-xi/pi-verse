@@ -8,7 +8,7 @@ TARGET = gpu-to-display
 
 all: $(TARGET)
 
-$(TARGET): gpu_to_panel_test.c
+$(TARGET): gpu-to-display.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDLIBS)
 
 clean:
