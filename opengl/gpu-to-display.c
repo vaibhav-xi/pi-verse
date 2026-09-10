@@ -145,27 +145,35 @@ static void gpu_init(GpuCtx *ctx, const char *render_node, int width, int height
         DIE("eglBindAPI(EGL_OPENGL_ES_API) failed: %s", egl_error_string(eglGetError()));
 
     EGLint cfg_attribs[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_RED_SIZE, 8,
-        EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8,
-        EGL_ALPHA_SIZE, 8,
         EGL_NONE
     };
-    
+
     EGLConfig config;
     EGLint num_configs;
-    if (!eglChooseConfig(ctx->display, cfg_attribs, &config, 1, &num_configs) || num_configs < 1)
-        DIE("eglChooseConfig found no suitable config: %s", egl_error_string(eglGetError()));
 
-    EGLint ctx_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
-    ctx->context = eglCreateContext(ctx->display, config, EGL_NO_CONTEXT, ctx_attribs);
-    if (ctx->context == EGL_NO_CONTEXT) DIE("eglCreateContext failed: %s", egl_error_string(eglGetError()));
+    if (!eglChooseConfig(ctx->display, cfg_attribs,
+                        &config, 1, &num_configs) ||
+        num_configs < 1)
+        DIE("eglChooseConfig found no suitable config: %s",
+            egl_error_string(eglGetError()));
 
-    EGLint pbuf_attribs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
-    ctx->surface = eglCreatePbufferSurface(ctx->display, config, pbuf_attribs);
-    if (ctx->surface == EGL_NO_SURFACE) DIE("eglCreatePbufferSurface failed: %s", egl_error_string(eglGetError()));
+    EGLint ctx_attribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_NONE
+    };
+
+    ctx->context = eglCreateContext(
+        ctx->display,
+        config,
+        EGL_NO_CONTEXT,
+        ctx_attribs);
+
+    if (ctx->context == EGL_NO_CONTEXT)
+        DIE("eglCreateContext failed: %s",
+            egl_error_string(eglGetError()));
+
+    ctx->surface = EGL_NO_SURFACE;
 
     const char *extensions = eglQueryString(ctx->display, EGL_EXTENSIONS);
     LOG("EGL_KHR_surfaceless_context supported: %s",
