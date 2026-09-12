@@ -4,7 +4,7 @@ import threading
 import config
 from lyrics_provider import fetch_lyrics
 from spotify_client import SpotifyState
-from ui import LyricsUI
+from ui_gl import LyricsUI
 
 
 def main():
