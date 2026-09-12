@@ -1,4 +1,3 @@
-
 #ifndef GPU_PANEL_H
 #define GPU_PANEL_H
 

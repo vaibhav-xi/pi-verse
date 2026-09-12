@@ -1,4 +1,3 @@
-
 #define _DEFAULT_SOURCE
 #include "gpu_panel.h"
 #include "lyrics_render.h"
@@ -50,7 +49,8 @@ int main(int argc, char **argv) {
     if (!gfx_init_shader(panel.width, panel.height)) DIE("gfx_init_shader failed.");
 
     LyricsRenderer renderer;
-    if (!lyrics_renderer_init(&renderer, font_path)) DIE("Could not load fonts from %s", font_path);
+    if (!lyrics_renderer_init(&renderer, font_path, panel.width, panel.height))
+        DIE("Could not load fonts from %s", font_path);
 
     size_t art_size;
     uint8_t *art_data = read_file(art_path, &art_size);

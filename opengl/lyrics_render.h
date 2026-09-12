@@ -1,4 +1,3 @@
-
 #ifndef LYRICS_RENDER_H
 #define LYRICS_RENDER_H
 
@@ -40,10 +39,11 @@ typedef struct {
 
     char title_track_id[256];
     float title_scroll_elapsed; /* seconds since title_track_id last changed */
+
+    float scale; /* see ui_scale.h - 1.0 at the reference 480x320, bigger on larger displays */
 } LyricsRenderer;
 
-/* Loads all 4 font sizes from one .ttf. Matches pygame sizes: 20/15/22/18. */
-bool lyrics_renderer_init(LyricsRenderer *r, const char *font_path);
+bool lyrics_renderer_init(LyricsRenderer *r, const char *font_path, int screen_w, int screen_h);
 
 /* Decodes and uploads new album art; replaces any previous art. */
 bool lyrics_renderer_set_album_art(LyricsRenderer *r, const uint8_t *img_data, size_t img_size);

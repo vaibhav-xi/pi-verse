@@ -50,7 +50,8 @@ int pv_init(const char *gpu_render_node, const char *panel_device, const char *f
     gpu_init(&g_gpu, resolved_gpu, g_panel.width, g_panel.height);
 
     if (!gfx_init_shader(g_panel.width, g_panel.height)) DIE("gfx_init_shader failed");
-    if (!lyrics_renderer_init(&g_renderer, font_path)) DIE("Could not load fonts from %s", font_path);
+    if (!lyrics_renderer_init(&g_renderer, font_path, g_panel.width, g_panel.height))
+        DIE("Could not load fonts from %s", font_path);
 
     size_t pixel_count = (size_t)g_panel.width * g_panel.height;
     g_rgba_buf = malloc(pixel_count * 4);

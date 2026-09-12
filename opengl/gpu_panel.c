@@ -21,6 +21,7 @@ jmp_buf g_pv_error_jmp;
 #include <xf86drm.h>
 #include <drm_fourcc.h>
 #include <EGL/eglext.h>
+#include "device_select.h"
 
 /* ---- device auto-detection ---- */
 
@@ -28,52 +29,113 @@ char *find_gpu_render_node(void) {
     DIR *d = opendir("/dev/dri");
     if (!d) DIE("Could not open /dev/dri (%s). Does this system have DRM at all?", strerror(errno));
 
+    RenderNodeCandidate candidates[MAX_DEVICE_CANDIDATES] = {0};
+    int count = 0;
+
     struct dirent *entry;
-    char *found = NULL;
-    while ((entry = readdir(d)) != NULL) {
+    while ((entry = readdir(d)) != NULL && count < MAX_DEVICE_CANDIDATES) {
         if (strncmp(entry->d_name, "renderD", 7) == 0) {
-            found = malloc(256);
-            snprintf(found, 256, "/dev/dri/%s", entry->d_name);
-            break;
+            snprintf(candidates[count].path, sizeof(candidates[count].path), "/dev/dri/%s", entry->d_name);
+            count++;
         }
     }
     closedir(d);
-    return found;
+
+    LOG("GPU render nodes found: %d", count);
+    for (int i = 0; i < count; i++) LOG("  %s", candidates[i].path);
+
+    const char *forced = getenv("PIVERSE_GPU_DEVICE");
+    if (forced && forced[0]) LOG("PIVERSE_GPU_DEVICE override: %s", forced);
+
+    int idx = select_render_node_candidate(candidates, count, forced);
+    if (idx < 0) return NULL;
+    return strdup(candidates[idx].path);
+}
+
+/* Best-effort driver name for logging (e.g. "vc4", "v3d", "ili9486") -
+ * never fails the caller, just falls back to "unknown". */
+static void get_driver_name(int fd, char *out, size_t out_size) {
+    drmVersionPtr ver = drmGetVersion(fd);
+    if (ver && ver->name) {
+        snprintf(out, out_size, "%.*s", ver->name_len, ver->name);
+        drmFreeVersion(ver);
+    } else {
+        snprintf(out, out_size, "unknown");
+    }
 }
 
 char *find_connected_card(void) {
     DIR *d = opendir("/dev/dri");
     if (!d) DIE("Could not open /dev/dri (%s)", strerror(errno));
 
-    struct dirent *entry;
-    char *found = NULL;
-    char path[256];
+    DisplayCandidate candidates[MAX_DEVICE_CANDIDATES] = {0};
+    int count = 0;
 
-    while ((entry = readdir(d)) != NULL) {
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL && count < MAX_DEVICE_CANDIDATES) {
         if (strncmp(entry->d_name, "card", 4) != 0) continue;
+
+        char path[256];
         snprintf(path, sizeof(path), "/dev/dri/%s", entry->d_name);
 
         int fd = open(path, O_RDWR);
         if (fd < 0) continue;
 
         drmModeRes *res = drmModeGetResources(fd);
+        bool added_any = false;
         if (res) {
-            for (int i = 0; i < res->count_connectors; i++) {
+            for (int i = 0; i < res->count_connectors && count < MAX_DEVICE_CANDIDATES; i++) {
                 drmModeConnector *conn = drmModeGetConnector(fd, res->connectors[i]);
-                if (conn && conn->connection == DRM_MODE_CONNECTED && conn->count_modes > 0) {
-                    found = strdup(path);
-                    drmModeFreeConnector(conn);
-                    break;
+                if (!conn) continue;
+
+                bool connected = (conn->connection == DRM_MODE_CONNECTED && conn->count_modes > 0);
+                
+                if (connected) {
+                    snprintf(candidates[count].path, sizeof(candidates[count].path), "%s", path);
+                    candidates[count].connected = true;
+                    candidates[count].width = conn->modes[0].hdisplay;
+                    candidates[count].height = conn->modes[0].vdisplay;
+                    get_driver_name(fd, candidates[count].driver_name, sizeof(candidates[count].driver_name));
+                    count++;
+                    added_any = true;
                 }
-                if (conn) drmModeFreeConnector(conn);
+                drmModeFreeConnector(conn);
             }
             drmModeFreeResources(res);
         }
+
+        if (!added_any && count < MAX_DEVICE_CANDIDATES) {
+            snprintf(candidates[count].path, sizeof(candidates[count].path), "%s", path);
+            candidates[count].connected = false;
+            candidates[count].width = candidates[count].height = 0;
+            get_driver_name(fd, candidates[count].driver_name, sizeof(candidates[count].driver_name));
+            count++;
+        }
         close(fd);
-        if (found) break;
     }
     closedir(d);
-    return found;
+
+    LOG("Display cards found: %d", count);
+    for (int i = 0; i < count; i++) {
+        if (candidates[i].connected)
+            LOG("  %s [%s] connected, %dx%d", candidates[i].path, candidates[i].driver_name,
+                candidates[i].width, candidates[i].height);
+        else
+            LOG("  %s [%s] not connected", candidates[i].path, candidates[i].driver_name);
+    }
+
+    const char *forced = getenv("PIVERSE_PANEL_DEVICE");
+    if (forced && forced[0]) LOG("PIVERSE_PANEL_DEVICE override: %s", forced);
+
+    int connected_count = 0;
+    for (int i = 0; i < count; i++) if (candidates[i].connected) connected_count++;
+    if (connected_count > 1)
+        LOG("WARNING: %d displays connected simultaneously - picking the first one found. "
+            "Set PIVERSE_PANEL_DEVICE or pass --panel to force a specific one.", connected_count);
+
+    int idx = select_display_candidate(candidates, count, forced);
+    if (idx < 0) return NULL;
+    return strdup(candidates[idx].path);
 }
 
 /* ---- GPU ---- */
@@ -109,8 +171,15 @@ void gpu_init(GpuCtx *ctx, const char *render_node, int width, int height) {
     ctx->gbm = gbm_create_device(ctx->gpu_fd);
     if (!ctx->gbm) DIE("gbm_create_device failed on %s", render_node);
 
-    /* eglGetPlatformDisplay is EGL 1.5 core; EGL_PLATFORM_GBM_KHR from eglext.h */
     ctx->display = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, ctx->gbm, NULL);
+    if (ctx->display == EGL_NO_DISPLAY) {
+        LOG("eglGetPlatformDisplay (EGL 1.5 core) unavailable, trying "
+            "EGL_EXT_platform_base fallback (older Mesa)...");
+        PFNEGLGETPLATFORMDISPLAYEXTPROC get_platform_display_ext =
+            (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+        if (get_platform_display_ext)
+            ctx->display = get_platform_display_ext(EGL_PLATFORM_GBM_KHR, ctx->gbm, NULL);
+    }
     if (ctx->display == EGL_NO_DISPLAY) DIE("eglGetPlatformDisplay failed: %s", egl_error_string(eglGetError()));
 
     EGLint major, minor;
@@ -145,12 +214,18 @@ void gpu_init(GpuCtx *ctx, const char *render_node, int width, int height) {
     if (!eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx->context))
         DIE("eglMakeCurrent (surfaceless) failed: %s", egl_error_string(eglGetError()));
 
-    LOG("GL_RENDERER: %s", glGetString(GL_RENDERER));
+    const char *renderer_str = (const char *)glGetString(GL_RENDERER);
+    LOG("GL_RENDERER: %s", renderer_str);
     LOG("GL_VERSION:  %s", glGetString(GL_VERSION));
-    if (strstr((const char *)glGetString(GL_RENDERER), "llvmpipe"))
+    if (strstr(renderer_str, "V3D"))
+        LOG("Real GPU acceleration confirmed (V3D - Pi 4/5-class VideoCore VI GPU).");
+    else if (strstr(renderer_str, "VC4"))
+        LOG("Real GPU acceleration confirmed (VC4 - Pi 0-3-class VideoCore IV GPU, "
+            "noticeably weaker than V3D but plenty for this UI's workload).");
+    else if (strstr(renderer_str, "llvmpipe"))
         LOG("WARNING: GL_RENDERER contains 'llvmpipe' - this is SOFTWARE rendering, "
-            "not the real GPU. Check that /dev/dri/renderD1xx really is the V3D "
-            "device (vc4-kms-v3d overlay enabled in /boot/firmware/config.txt).");
+            "not the real GPU. Check that vc4-kms-v3d (or the Pi 3 equivalent "
+            "vc4-kms overlay) is enabled in /boot/firmware/config.txt.");
 
     glGenTextures(1, &ctx->color_tex);
     glBindTexture(GL_TEXTURE_2D, ctx->color_tex);
@@ -299,6 +374,10 @@ void panel_init(PanelCtx *p, const char *card_path) {
     p->width = p->mode.hdisplay;
     p->height = p->mode.vdisplay;
     LOG("Panel connector %u, mode %dx%d@%dHz", p->connector_id, p->width, p->height, p->mode.vrefresh);
+    if (conn->mmWidth > 0 && conn->mmHeight > 0)
+        LOG("Physical size from EDID: %umm x %umm (informational only - not used for UI "
+            "scaling, since many small SPI panels report 0 or inaccurate values here)",
+            conn->mmWidth, conn->mmHeight);
 
     drmModeEncoder *enc = NULL;
     if (conn->encoder_id) enc = drmModeGetEncoder(p->fd, conn->encoder_id);

@@ -1,6 +1,7 @@
 #define _DEFAULT_SOURCE
 #include "lyrics_render.h"
 #include "lyrics_layout.h"
+#include "ui_scale.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -42,12 +43,16 @@ static void draw_text_centered(const Font *font, const char *text, float center_
     font_draw_text(font, x, baseline_y, text, r, g, b, a);
 }
 
-bool lyrics_renderer_init(LyricsRenderer *r, const char *font_path) {
+bool lyrics_renderer_init(LyricsRenderer *r, const char *font_path, int screen_w, int screen_h) {
     memset(r, 0, sizeof(*r));
-    if (!font_load(font_path, 20.0f, &r->font_title)) return false;
-    if (!font_load(font_path, 15.0f, &r->font_artist)) return false;
-    if (!font_load(font_path, 22.0f, &r->font_lyric_active)) return false;
-    if (!font_load(font_path, 18.0f, &r->font_lyric_dim)) return false;
+    r->scale = compute_ui_scale(screen_w, screen_h);
+    fprintf(stderr, "[piverse-gl] UI scale: %.3fx (%dx%d vs %.0fx%.0f reference)\n",
+            r->scale, screen_w, screen_h, UI_REFERENCE_WIDTH, UI_REFERENCE_HEIGHT);
+
+    if (!font_load(font_path, 20.0f * r->scale, &r->font_title)) return false;
+    if (!font_load(font_path, 15.0f * r->scale, &r->font_artist)) return false;
+    if (!font_load(font_path, 22.0f * r->scale, &r->font_lyric_active)) return false;
+    if (!font_load(font_path, 18.0f * r->scale, &r->font_lyric_dim)) return false;
     return true;
 }
 
@@ -84,7 +89,7 @@ static void draw_title(LyricsRenderer *r, const TrackSnapshot *snap, float x, fl
         r->title_scroll_elapsed += dt_seconds;
     }
 
-    float available_width = (float)screen_w - x - 8.0f;
+    float available_width = (float)screen_w - x - 8.0f * r->scale;
     float title_width = font_measure_text(&r->font_title, title);
 
     bool short_by_chars = strlen(title) <= TITLE_MAX_CHARS;
@@ -98,7 +103,7 @@ static void draw_title(LyricsRenderer *r, const TrackSnapshot *snap, float x, fl
 
     TitleScrollState st = compute_title_scroll(title_width, available_width,
                                                 r->title_scroll_elapsed,
-                                                TITLE_SCROLL_SPEED, TITLE_SCROLL_PAUSE);
+                                                TITLE_SCROLL_SPEED * r->scale, TITLE_SCROLL_PAUSE);
 
     float line_height = r->font_title.ascent - r->font_title.descent;
 
@@ -113,14 +118,16 @@ static void draw_title(LyricsRenderer *r, const TrackSnapshot *snap, float x, fl
 }
 
 static void draw_lyric_block(const Font *font, const char *text, float center_y,
-                              int screen_w, float r, float g, float b) {
+                              int screen_w, float scale, float r, float g, float b) {
     WrappedText w;
     float line_height = font->ascent - font->descent;
-    wrap_lyric_line(font, measure_wrapper, text, (float)screen_w - 2 * 12.0f,
-                     line_height, WRAPPED_GAP, &w);
+    float margin = 12.0f * scale;
+    float wrapped_gap = WRAPPED_GAP * scale;
+    wrap_lyric_line(font, measure_wrapper, text, (float)screen_w - 2 * margin,
+                     line_height, wrapped_gap, &w);
     if (w.line_count == 0) return;
 
-    float line_spacing = (line_height - 3.0f) > WRAPPED_GAP ? (line_height - 3.0f) : WRAPPED_GAP;
+    float line_spacing = (line_height - 3.0f) > wrapped_gap ? (line_height - 3.0f) : wrapped_gap;
     float y = center_y - w.total_height / 2.0f + line_height / 2.0f;
 
     for (int i = 0; i < w.line_count; i++) {
@@ -149,20 +156,24 @@ void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt
         return;
     }
 
+    float s = r->scale;
+    float art_size = ART_SIZE * s;
+    float margin = 12.0f * s;
+
     /* ---- header: album art, title, artist ---- */
     if (r->album_art_loaded)
-        gfx_draw_textured_rect(r->album_art.texture, 12, 12, ART_SIZE, ART_SIZE, 1.0f);
+        gfx_draw_textured_rect(r->album_art.texture, margin, margin, art_size, art_size, 1.0f);
 
-    float text_x = r->album_art_loaded ? (12.0f + ART_SIZE + 14.0f) : 16.0f;
-    draw_title(r, snap, text_x, 20.0f, screen_w, screen_h, dt_seconds);
+    float text_x = r->album_art_loaded ? (margin + art_size + 14.0f * s) : 16.0f * s;
+    draw_title(r, snap, text_x, 20.0f * s, screen_w, screen_h, dt_seconds);
 
     if (snap->artist_name && snap->artist_name[0]) {
-        float baseline_y = 48.0f + r->font_artist.ascent;
+        float baseline_y = 48.0f * s + r->font_artist.ascent;
         font_draw_text(&r->font_artist, text_x, baseline_y, snap->artist_name, DIM_R, DIM_G, DIM_B, 1.0f);
     }
 
-    float header_bottom = 12.0f + ART_SIZE + 10.0f;
-    gfx_fill_rect(0, header_bottom, (float)screen_w, 1, SEP_R, SEP_G, SEP_B, 1.0f);
+    float header_bottom = margin + art_size + 10.0f * s;
+    gfx_fill_rect(0, header_bottom, (float)screen_w, 1.0f > s ? 1.0f : s, SEP_R, SEP_G, SEP_B, 1.0f);
 
     /* ---- lyrics ---- */
     float lyrics_top = header_bottom;
@@ -189,7 +200,7 @@ void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt
                 WrappedText w;
                 float line_height = font->ascent - font->descent;
                 wrap_lyric_line(font, measure_wrapper, lyrics->synced[i].text,
-                                 (float)screen_w - 2 * 12.0f, line_height, WRAPPED_GAP, &w);
+                                 (float)screen_w - 2 * margin, line_height, WRAPPED_GAP * s, &w);
                 if (w.line_count == 0) continue;
 
                 cands[cand_count].offset = offset;
@@ -201,8 +212,8 @@ void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt
                 cand_count++;
             }
 
-            float available_height = (float)screen_h - lyrics_top - 8.0f;
-            int remaining = trim_visible_lyrics(cands, cand_count, VERSE_GAP, available_height);
+            float available_height = (float)screen_h - lyrics_top - 8.0f * s;
+            int remaining = trim_visible_lyrics(cands, cand_count, VERSE_GAP * s, available_height);
             (void)remaining;
 
             float total_height = 0;
@@ -212,7 +223,7 @@ void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt
                 total_height += heights[i];
                 visible_count++;
             }
-            if (visible_count > 1) total_height += (visible_count - 1) * VERSE_GAP;
+            if (visible_count > 1) total_height += (visible_count - 1) * VERSE_GAP * s;
 
             float group_center = lyrics_top + ((float)screen_h - lyrics_top) / 2.0f;
             float top = group_center - total_height / 2.0f;
@@ -224,8 +235,8 @@ void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt
                 float rr = (cands[i].offset == 0) ? ACCENT_R : DIM_R;
                 float gg = (cands[i].offset == 0) ? ACCENT_G : DIM_G;
                 float bb = (cands[i].offset == 0) ? ACCENT_B : DIM_B;
-                draw_lyric_block(fonts[i], texts[i], block_center, screen_w, rr, gg, bb);
-                current_y += heights[i] + VERSE_GAP;
+                draw_lyric_block(fonts[i], texts[i], block_center, screen_w, s, rr, gg, bb);
+                current_y += heights[i] + VERSE_GAP * s;
             }
         }
     } else if (lyrics && lyrics->plain) {
