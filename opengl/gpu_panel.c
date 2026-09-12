@@ -3,6 +3,10 @@
 
 #include "gpu_panel.h"
 
+bool g_pv_use_longjmp = false;
+jmp_buf g_pv_error_jmp;
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,9 +123,6 @@ void gpu_init(GpuCtx *ctx, const char *render_node, int width, int height) {
     if (!eglBindAPI(EGL_OPENGL_ES_API))
         DIE("eglBindAPI(EGL_OPENGL_ES_API) failed: %s", egl_error_string(eglGetError()));
 
-    /* We render entirely into our own FBO/texture, never into an actual
-     * EGL surface, so we deliberately do NOT filter on EGL_SURFACE_TYPE -
-     * GBM-platform Mesa drivers often only expose window-surface configs. */
     EGLint cfg_attribs[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
         EGL_NONE

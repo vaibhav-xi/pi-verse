@@ -9,8 +9,19 @@
 #include <GLES2/gl2.h>
 #include <xf86drmMode.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <setjmp.h>
+
+extern bool g_pv_use_longjmp;
+extern jmp_buf g_pv_error_jmp;
+
 #define LOG(...)  do { fprintf(stderr, "[piverse-gl] " __VA_ARGS__); fprintf(stderr, "\n"); } while (0)
-#define DIE(...)  do { LOG("FATAL: " __VA_ARGS__); exit(1); } while (0)
+#define DIE(...)  do { \
+    LOG("FATAL: " __VA_ARGS__); \
+    if (g_pv_use_longjmp) longjmp(g_pv_error_jmp, 1); \
+    exit(1); \
+} while (0)
 
 /* ---- device auto-detection ---- */
 
@@ -35,17 +46,11 @@ typedef struct {
 
 void gpu_init(GpuCtx *ctx, const char *render_node, int width, int height);
 
-/* Binds the FBO and sets the viewport. Call this, then draw with
- * font_draw_text()/gfx_fill_rect() from font.h, then gpu_end_frame(). */
 void gpu_begin_frame(GpuCtx *ctx);
 
-/* Finishes rendering and reads the FBO back into out_rgba (must be at
- * least width*height*4 bytes, RGBA8, GL's bottom-up row order). */
 void gpu_end_frame(GpuCtx *ctx, uint8_t *out_rgba);
 
 void gpu_render_solid_frame(GpuCtx *ctx, float r, float g, float b, uint8_t *out_rgba);
-
-/* ---- pixel format conversion (GPU's RGBA8 -> whatever the panel wants) ---- */
 
 void convert_rgba_for_panel(const uint8_t *rgba, int width, int height,
                              uint32_t drm_format, uint8_t *out);
