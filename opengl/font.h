@@ -20,7 +20,7 @@ typedef struct {
 typedef struct {
     GLuint program;
     GLint a_pos, a_uv;
-    GLint u_screen_size, u_color, u_use_texture, u_tex;
+    GLint u_screen_size, u_color, u_texture_mode, u_tex;
 } GfxShader;
 
 extern GfxShader g_gfx_shader; /* defined in font.c */
@@ -38,5 +38,7 @@ float font_measure_text(const Font *font, const char *utf8_text);
 
 /* Fills an axis-aligned rectangle with a solid color (no texture). */
 void gfx_fill_rect(float x, float y, float w, float h, float r, float g, float b, float a);
+
+void gfx_draw_textured_rect(GLuint texture_id, float x, float y, float w, float h, float alpha);
 
 #endif

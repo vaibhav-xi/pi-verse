@@ -51,10 +51,17 @@ static const char *FS_SRC =
     "varying vec2 v_uv;\n"
     "uniform sampler2D u_tex;\n"
     "uniform vec4 u_color;\n"
-    "uniform float u_use_texture;\n"
+    "uniform float u_texture_mode;\n" /* 0=solid color, 1=alpha-mask (text), 2=full RGBA image */
     "void main() {\n"
-    "    float a = mix(1.0, texture2D(u_tex, v_uv).a, u_use_texture);\n"
-    "    gl_FragColor = vec4(u_color.rgb, u_color.a * a);\n"
+    "    if (u_texture_mode < 0.5) {\n"
+    "        gl_FragColor = u_color;\n"
+    "    } else if (u_texture_mode < 1.5) {\n"
+    "        float a = texture2D(u_tex, v_uv).a;\n"
+    "        gl_FragColor = vec4(u_color.rgb, u_color.a * a);\n"
+    "    } else {\n"
+    "        vec4 tex = texture2D(u_tex, v_uv);\n"
+    "        gl_FragColor = vec4(tex.rgb, tex.a * u_color.a);\n"
+    "    }\n"
     "}\n";
 
 static GLuint compile_shader(GLenum type, const char *src) {
@@ -102,7 +109,7 @@ bool gfx_init_shader(int screen_width, int screen_height) {
     g_gfx_shader.a_uv = 1;
     g_gfx_shader.u_screen_size = glGetUniformLocation(prog, "u_screen_size");
     g_gfx_shader.u_color = glGetUniformLocation(prog, "u_color");
-    g_gfx_shader.u_use_texture = glGetUniformLocation(prog, "u_use_texture");
+    g_gfx_shader.u_texture_mode = glGetUniformLocation(prog, "u_texture_mode");
     g_gfx_shader.u_tex = glGetUniformLocation(prog, "u_tex");
 
     glUseProgram(prog);
@@ -125,7 +132,7 @@ void gfx_fill_rect(float x, float y, float w, float h, float r, float g, float b
 
     glUseProgram(g_gfx_shader.program);
     glUniform4f(g_gfx_shader.u_color, r, g, b, a);
-    glUniform1f(g_gfx_shader.u_use_texture, 0.0f);
+    glUniform1f(g_gfx_shader.u_texture_mode, 0.0f);
 
     glEnableVertexAttribArray(g_gfx_shader.a_pos);
     glEnableVertexAttribArray(g_gfx_shader.a_uv);
@@ -264,7 +271,7 @@ float font_draw_text(const Font *font, float x, float y, const char *utf8_text,
     if (glyph_count > 0) {
         glUseProgram(g_gfx_shader.program);
         glUniform4f(g_gfx_shader.u_color, r, g, b, a);
-        glUniform1f(g_gfx_shader.u_use_texture, 1.0f);
+        glUniform1f(g_gfx_shader.u_texture_mode, 1.0f);
         glUniform1i(g_gfx_shader.u_tex, 0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, font->texture);
@@ -278,4 +285,28 @@ float font_draw_text(const Font *font, float x, float y, const char *utf8_text,
 
     free(verts);
     return xpos;
+}
+
+void gfx_draw_textured_rect(GLuint texture_id, float x, float y, float w, float h, float alpha) {
+    float verts[6][4] = {
+        { x,     y,     0, 0 },
+        { x + w, y,     1, 0 },
+        { x,     y + h, 0, 1 },
+        { x,     y + h, 0, 1 },
+        { x + w, y,     1, 0 },
+        { x + w, y + h, 1, 1 },
+    };
+
+    glUseProgram(g_gfx_shader.program);
+    glUniform4f(g_gfx_shader.u_color, 1.0f, 1.0f, 1.0f, alpha);
+    glUniform1f(g_gfx_shader.u_texture_mode, 2.0f);
+    glUniform1i(g_gfx_shader.u_tex, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+
+    glEnableVertexAttribArray(g_gfx_shader.a_pos);
+    glEnableVertexAttribArray(g_gfx_shader.a_uv);
+    glVertexAttribPointer(g_gfx_shader.a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), &verts[0][0]);
+    glVertexAttribPointer(g_gfx_shader.a_uv, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), &verts[0][2]);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
 }
