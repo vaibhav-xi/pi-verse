@@ -8,11 +8,18 @@
 
 #define FONT_FIRST_CODEPOINT 32
 #define FONT_NUM_CODEPOINTS  224  /* 32..255 inclusive */
+#define FONT_EXTRA_FIRST_CODEPOINT 0x2013 /* EN DASH */
+#define FONT_EXTRA_NUM_CODEPOINTS  0x14   /* through 0x2026 HORIZONTAL ELLIPSIS inclusive */
+#define FONT_NOTE_CODEPOINT 0x266A         /* EIGHTH NOTE - synthesized, see note_icon.h */
 #define FONT_ATLAS_SIZE      512  /* atlas bitmap is FONT_ATLAS_SIZE^2, 1 channel */
 
 typedef struct {
     GLuint texture;
-    void *packed_chars;   /* stbtt_packedchar[FONT_NUM_CODEPOINTS], opaque here to avoid pulling stb into every TU */
+    void *packed_chars;       /* stbtt_packedchar[FONT_NUM_CODEPOINTS] */
+    void *extra_packed_chars;  /* stbtt_packedchar[FONT_EXTRA_NUM_CODEPOINTS] */
+    GLuint note_texture;        /* small standalone ALPHA texture for the synthesized note icon */
+    float note_width, note_height; /* pixel size of the note icon quad, sits on the baseline like a normal glyph */
+    float note_advance;          /* how far to move the cursor after drawing the note icon */
     float pixel_height;
     float ascent, descent, line_gap; /* in pixels, from the font's metrics at this size */
 } Font;
