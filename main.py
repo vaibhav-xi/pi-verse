@@ -5,6 +5,7 @@ import config
 from lyrics_provider import fetch_lyrics
 from spotify_client import SpotifyState
 from ui_gl import LyricsUI
+import ui_gl
 
 
 def main():
@@ -50,6 +51,7 @@ def main():
     poll_thread.start()
 
     ui = LyricsUI(windowed=args.windowed, fbdev=args.fbdev)
+    ui.set_display_mode(ui_gl.DISPLAY_MODE_QUEUE)
 
     running = True
     while running:
@@ -57,7 +59,8 @@ def main():
         snapshot = spotify.get_snapshot()
         with lyrics_lock:
             current_lyrics = dict(lyrics_state)
-        ui.render(snapshot, current_lyrics)
+        # ui.render(snapshot, current_lyrics)
+        ui.render(snapshot, current_lyrics, queue=spotify.get_queue_snapshot())
 
     spotify.stop()
 
