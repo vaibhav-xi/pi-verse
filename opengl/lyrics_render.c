@@ -8,7 +8,6 @@
 #include <string.h>
 #include <math.h>
 
-/* ---- colors, matching ui.py exactly (converted from 0-255 to 0-1) ---- */
 #define BG_R (10/255.0f)
 #define BG_G (10/255.0f)
 #define BG_B (14/255.0f)
@@ -33,15 +32,17 @@
 #define TITLE_SCROLL_PAUSE 3.0f
 
 /* ---- queue mode layout ---- */
-#define QUEUE_LEFT_FRACTION 0.68f   /* left (lyrics) column width as a fraction of screen_w */
+#define QUEUE_LEFT_FRACTION 0.63f   /* left (lyrics) column width as a fraction of screen_w */
 #define QUEUE_MARGIN 20.0f
 #define QUEUE_ABOVE_FRACTION 0.22f  /* fraction of the left column's height reserved above the current line */
 #define QUEUE_LINE_GAP 10.0f
 #define QUEUE_ART_TOP 16.0f
 #define QUEUE_SECTION_GAP 16.0f
 #define QUEUE_MAX_SCAN 24           /* how far past/before the current line to consider for the scroll window */
-#define QUEUE_MAX_ITEMS 4           /* upcoming-queue entries shown */
-#define QUEUE_ITEM_GAP 8.0f
+#define QUEUE_MAX_ITEMS 2           /* upcoming-queue entries shown - each gets its own thumbnail now */
+#define QUEUE_ITEM_GAP 10.0f
+#define QUEUE_ITEM_THUMB_SIZE 40.0f /* queue row thumbnail (at scale=1) */
+#define QUEUE_ITEM_TEXT_GAP 10.0f   /* gap between a queue row's thumbnail and its text */
 
 static float measure_wrapper(const void *font, const char *text) {
     return font_measure_text((const Font *)font, text);
@@ -80,12 +81,27 @@ void lyrics_renderer_clear_album_art(LyricsRenderer *r) {
     r->album_art_loaded = false;
 }
 
+bool lyrics_renderer_set_queue_art(LyricsRenderer *r, int slot, const uint8_t *img_data, size_t img_size) {
+    if (slot < 0 || slot >= LYRICS_QUEUE_ART_SLOTS) return false;
+    lyrics_renderer_clear_queue_art(r, slot);
+    if (!image_load_from_memory(img_data, img_size, &r->queue_art[slot])) return false;
+    r->queue_art_loaded[slot] = true;
+    return true;
+}
+
+void lyrics_renderer_clear_queue_art(LyricsRenderer *r, int slot) {
+    if (slot < 0 || slot >= LYRICS_QUEUE_ART_SLOTS) return;
+    if (r->queue_art_loaded[slot]) image_free(&r->queue_art[slot]);
+    r->queue_art_loaded[slot] = false;
+}
+
 void lyrics_renderer_free(LyricsRenderer *r) {
     font_free(&r->font_title);
     font_free(&r->font_artist);
     font_free(&r->font_lyric_active);
     font_free(&r->font_lyric_dim);
     lyrics_renderer_clear_album_art(r);
+    for (int i = 0; i < LYRICS_QUEUE_ART_SLOTS; i++) lyrics_renderer_clear_queue_art(r, i);
 }
 
 static void draw_title(LyricsRenderer *r, const TrackSnapshot *snap, float x, float y,
@@ -379,13 +395,40 @@ void lyrics_render_frame_queue_mode(LyricsRenderer *r, int screen_w, int screen_
     }
 
     int shown = queue_count < QUEUE_MAX_ITEMS ? queue_count : QUEUE_MAX_ITEMS;
+    float thumb_size = QUEUE_ITEM_THUMB_SIZE * s;
+    float text_gap = QUEUE_ITEM_TEXT_GAP * s;
+    float text_x = right_x + thumb_size + text_gap;
+    float text_width = right_width - thumb_size - text_gap;
+    if (text_width < 10.0f) text_width = 10.0f;
+
     for (int i = 0; i < shown; i++) {
         if (!queue_items[i].track_name) continue;
-        if (y > (float)screen_h - margin) break; /* out of vertical room */
+        if (y + thumb_size > (float)screen_h - margin) break; /* out of vertical room */
+
+        float row_top = y;
+
+        if (i < LYRICS_QUEUE_ART_SLOTS && r->queue_art_loaded[i])
+            gfx_draw_textured_rect(r->queue_art[i].texture, right_x, row_top, thumb_size, thumb_size, 1.0f);
+        else
+            gfx_fill_rect(right_x, row_top, thumb_size, thumb_size, SEP_R, SEP_G, SEP_B, 1.0f);
+
+        float track_line_h = r->font_artist.ascent - r->font_artist.descent;
+        float artist_line_h = r->font_lyric_dim.ascent - r->font_lyric_dim.descent;
+        float text_block_h = track_line_h + artist_line_h;
+        float text_top = row_top + (thumb_size - text_block_h) / 2.0f;
+        if (text_top < row_top) text_top = row_top;
+
         char truncated[256];
-        font_truncate_text(&r->font_lyric_dim, queue_items[i].track_name, right_width, truncated, sizeof(truncated));
-        float baseline_y = y + r->font_lyric_dim.ascent;
-        font_draw_text(&r->font_lyric_dim, right_x, baseline_y, truncated, DIM_R, DIM_G, DIM_B, 1.0f);
-        y += (r->font_lyric_dim.ascent - r->font_lyric_dim.descent) + QUEUE_ITEM_GAP * s;
+        font_truncate_text(&r->font_artist, queue_items[i].track_name, text_width, truncated, sizeof(truncated));
+        font_draw_text(&r->font_artist, text_x, text_top + r->font_artist.ascent, truncated,
+                        TEXT_R, TEXT_G, TEXT_B, 1.0f);
+
+        if (queue_items[i].artist_name && queue_items[i].artist_name[0]) {
+            font_truncate_text(&r->font_lyric_dim, queue_items[i].artist_name, text_width, truncated, sizeof(truncated));
+            font_draw_text(&r->font_lyric_dim, text_x, text_top + track_line_h + r->font_lyric_dim.ascent,
+                            truncated, DIM_R, DIM_G, DIM_B, 1.0f);
+        }
+
+        y += thumb_size + QUEUE_ITEM_GAP * s;
     }
 }

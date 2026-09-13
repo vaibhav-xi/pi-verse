@@ -34,6 +34,9 @@ class QueueItem(ctypes.Structure):
 DISPLAY_MODE_CLASSIC = 0
 DISPLAY_MODE_QUEUE = 1
 
+# Must match lyrics_render.h's LYRICS_QUEUE_ART_SLOTS.
+QUEUE_ART_SLOTS = 4
+
 
 def _find_library():
     for path in _LIB_CANDIDATES:
@@ -58,6 +61,12 @@ def _load_library():
 
     lib.pv_clear_album_art.argtypes = []
     lib.pv_clear_album_art.restype = None
+
+    lib.pv_set_queue_art.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_size_t]
+    lib.pv_set_queue_art.restype = ctypes.c_int
+
+    lib.pv_clear_queue_art.argtypes = [ctypes.c_int]
+    lib.pv_clear_queue_art.restype = None
 
     lib.pv_set_display_mode.argtypes = [ctypes.c_int]
     lib.pv_set_display_mode.restype = None
@@ -105,6 +114,9 @@ class LyricsUI:
         self._album_art_url = None
         self._album_art_cache = {}  # url -> bytes, same caching ui.py did
 
+        self._queue_art_urls = [None] * QUEUE_ART_SLOTS   # what's currently shown in each slot
+        self._queue_art_cache = {}                           # url -> bytes, shared cache across slots
+
         panel_device = fbdev.encode() if fbdev else None
         gpu_device_enc = gpu_device.encode() if gpu_device else None
         font_path = config.FONT_PATH.encode()
@@ -143,6 +155,33 @@ class LyricsUI:
         if self._lib.pv_set_album_art(data, len(data)) != 0:
             print("[ui_gl] album art decode failed (unsupported format?)")
 
+    def _update_queue_art(self, queue):
+        for slot in range(QUEUE_ART_SLOTS):
+            url = queue[slot].get("album_art_url") if slot < len(queue) else None
+
+            if url == self._queue_art_urls[slot]:
+                continue
+            self._queue_art_urls[slot] = url
+
+            if not url:
+                self._lib.pv_clear_queue_art(slot)
+                continue
+
+            data = self._queue_art_cache.get(url)
+            if data is None:
+                try:
+                    resp = requests.get(url, timeout=6)
+                    resp.raise_for_status()
+                    data = resp.content
+                    self._queue_art_cache[url] = data
+                except requests.RequestException as exc:
+                    print(f"[ui_gl] queue art fetch failed (slot {slot}): {exc}")
+                    self._lib.pv_clear_queue_art(slot)
+                    continue
+
+            if self._lib.pv_set_queue_art(slot, data, len(data)) != 0:
+                print(f"[ui_gl] queue art decode failed (slot {slot})")
+
     def set_display_mode(self, mode):
         self._lib.pv_set_display_mode(mode)
 
@@ -159,6 +198,9 @@ class LyricsUI:
 
         self._update_album_art(snapshot.get("album_art_url"))
 
+        queue = queue or []
+        self._update_queue_art(queue)
+
         synced = (lyrics_state or {}).get("synced") or []
         synced_array = (SyncedLine * len(synced))() if synced else None
         encoded_texts = []  # keeps bytes alive through the call below
@@ -168,7 +210,6 @@ class LyricsUI:
             synced_array[i].timestamp_ms = int(ts)
             synced_array[i].text = encoded
 
-        queue = queue or []
         queue_array = (QueueItem * len(queue))() if queue else None
         encoded_queue_texts = []  # keeps bytes alive through the call below
         for i, item in enumerate(queue):

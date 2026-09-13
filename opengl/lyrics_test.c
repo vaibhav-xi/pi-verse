@@ -81,6 +81,21 @@ int main(int argc, char **argv) {
         LOG("WARNING: could not read %s, continuing without album art", art_path);
     }
 
+    if (queue_mode) {
+        const char *queue_art_paths[2] = { "./test_album_art.jpg", "./test_album_art_2.jpg" };
+        for (int i = 0; i < 2; i++) {
+            size_t qsize;
+            uint8_t *qdata = read_file(queue_art_paths[i], &qsize);
+            if (qdata) {
+                if (lyrics_renderer_set_queue_art(&renderer, i, qdata, qsize))
+                    LOG("Queue thumbnail %d loaded from %s", i, queue_art_paths[i]);
+                else
+                    LOG("WARNING: queue thumbnail %d decode failed", i);
+                free(qdata);
+            }
+        }
+    }
+
     /* Mock "now playing" data: a long title (forces marquee) and several
      * synced lines (forces wrap on some, cycling as if the song plays).
      * More lines than the classic-mode test needs, since queue mode's

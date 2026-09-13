@@ -131,14 +131,16 @@ class SpotifyState:
 
         items = (data or {}).get("queue", [])
         with self._lock:
-            self.queue = [
-                {
+            self.queue = []
+            for item in items:
+                if item.get("type") != "track":  # skip podcast episodes - different shape
+                    continue
+                images = item.get("album", {}).get("images", [])
+                self.queue.append({
                     "track_name": item.get("name", ""),
                     "artist_name": ", ".join(a["name"] for a in item.get("artists", [])),
-                }
-                for item in items
-                if item.get("type") == "track"  # skip podcast episodes - different shape
-            ]
+                    "album_art_url": images[0]["url"] if images else None,
+                })
 
     def get_queue_snapshot(self):
         with self._lock:

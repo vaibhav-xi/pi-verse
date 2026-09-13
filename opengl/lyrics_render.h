@@ -31,29 +31,35 @@ typedef struct {
     bool found;                  /* only meaningful when synced/plain are both empty */
 } LyricsState;
 
+#define LYRICS_QUEUE_ART_SLOTS 4 
+
 typedef struct {
     Font font_title, font_artist, font_lyric_active, font_lyric_dim;
 
     Image album_art;
     bool album_art_loaded;
 
+    Image queue_art[LYRICS_QUEUE_ART_SLOTS];
+    bool queue_art_loaded[LYRICS_QUEUE_ART_SLOTS];
+
     char title_track_id[256];
     float title_scroll_elapsed; /* seconds since title_track_id last changed */
 
-    float scale; /* see ui_scale.h - 1.0 at the reference 480x320, bigger on larger displays */
+    float scale;
 } LyricsRenderer;
 
 bool lyrics_renderer_init(LyricsRenderer *r, const char *font_path, int screen_w, int screen_h);
 
-/* Decodes and uploads new album art; replaces any previous art. */
 bool lyrics_renderer_set_album_art(LyricsRenderer *r, const uint8_t *img_data, size_t img_size);
 void lyrics_renderer_clear_album_art(LyricsRenderer *r);
+
+bool lyrics_renderer_set_queue_art(LyricsRenderer *r, int slot, const uint8_t *img_data, size_t img_size);
+void lyrics_renderer_clear_queue_art(LyricsRenderer *r, int slot);
 
 typedef struct {
     const char *track_name;
     const char *artist_name;
 } QueueItem;
-
 
 void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt_seconds,
                           const TrackSnapshot *snap, const LyricsState *lyrics);

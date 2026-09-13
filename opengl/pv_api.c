@@ -34,7 +34,6 @@ int pv_init(const char *gpu_render_node, const char *panel_device, const char *f
 
     g_pv_use_longjmp = true;
     if (setjmp(g_pv_error_jmp) != 0) {
-        
         free(auto_gpu);
         free(auto_panel);
         g_pv_use_longjmp = false;
@@ -92,6 +91,27 @@ int pv_set_album_art(const uint8_t *img_data, size_t img_size) {
 void pv_clear_album_art(void) {
     if (!g_initialized) return;
     lyrics_renderer_clear_album_art(&g_renderer);
+}
+
+int pv_set_queue_art(int slot, const uint8_t *img_data, size_t img_size) {
+    if (!g_initialized) { fprintf(stderr, "[piverse-gl] pv_set_queue_art() called before pv_init()\n"); return -1; }
+
+    if (setjmp(g_pv_error_jmp) != 0) return -1;
+
+    if (!img_data || img_size == 0) {
+        lyrics_renderer_clear_queue_art(&g_renderer, slot);
+        return 0;
+    }
+    if (!lyrics_renderer_set_queue_art(&g_renderer, slot, img_data, img_size)) {
+        LOG("queue art decode failed (slot %d)", slot);
+        return -1;
+    }
+    return 0;
+}
+
+void pv_clear_queue_art(int slot) {
+    if (!g_initialized) return;
+    lyrics_renderer_clear_queue_art(&g_renderer, slot);
 }
 
 int pv_render_frame(

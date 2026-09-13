@@ -15,6 +15,9 @@ int pv_init(const char *gpu_render_node, const char *panel_device, const char *f
 int pv_set_album_art(const uint8_t *img_data, size_t img_size);
 void pv_clear_album_art(void);
 
+int pv_set_queue_art(int slot, const uint8_t *img_data, size_t img_size);
+void pv_clear_queue_art(int slot);
+
 int pv_render_frame(
     bool has_track,
     const char *track_id,        /* used only to detect track changes (resets title scroll) */
