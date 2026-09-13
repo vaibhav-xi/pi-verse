@@ -1,3 +1,14 @@
+/*
+ * lyrics_test.c - STAGE 4 DIAGNOSTIC.
+ *
+ * The full "now playing" UI: real album art (JPEG decode), a long title
+ * that should scroll, and multi-line synced lyrics with word-wrap and
+ * the active line highlighted - simulating a song actually playing by
+ * advancing progress_ms over time and stepping through lyric lines.
+ *
+ * Build:  make
+ * Run:    sudo ./lyrics_test [--gpu ...] [--panel ...] [--font ./NotoSans.ttf] [--art ./test_album_art.jpg] [--mode classic|queue]
+ */
 #define _DEFAULT_SOURCE
 #include "gpu_panel.h"
 #include "lyrics_render.h"
@@ -27,12 +38,18 @@ int main(int argc, char **argv) {
     const char *panel_path = NULL;
     const char *font_path = "./NotoSans.ttf";
     const char *art_path = "./test_album_art.jpg";
+    bool queue_mode = false;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--gpu") && i + 1 < argc) gpu_path = argv[++i];
         else if (!strcmp(argv[i], "--panel") && i + 1 < argc) panel_path = argv[++i];
         else if (!strcmp(argv[i], "--font") && i + 1 < argc) font_path = argv[++i];
         else if (!strcmp(argv[i], "--art") && i + 1 < argc) art_path = argv[++i];
+        else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
+            const char *mode = argv[++i];
+            if (!strcmp(mode, "queue")) queue_mode = true;
+            else if (strcmp(mode, "classic") != 0) DIE("--mode must be 'classic' or 'queue'");
+        }
     }
 
     char *auto_gpu = NULL, *auto_panel = NULL;
@@ -65,18 +82,34 @@ int main(int argc, char **argv) {
     }
 
     /* Mock "now playing" data: a long title (forces marquee) and several
-     * synced lines (forces wrap on some, cycling as if the song plays). */
+     * synced lines (forces wrap on some, cycling as if the song plays).
+     * More lines than the classic-mode test needs, since queue mode's
+     * continuous scroll wants enough lines to actually demonstrate. */
     static const SyncedLine LYRICS[] = {
         { 0,     "This is the first line of a test song" },
         { 3000,  "Rendered entirely by hand-written OpenGL ES code" },
         { 6000,  "With word-wrap, a scrolling title (feat. a very long name), and real album art" },
-        { 10000, "Running on a Raspberry Pi's actual GPU" },
-        { 13000, "No pygame, no SDL, no Python in this part at all" },
-        { 16000, "Just EGL, GLES2, and a font atlas we baked ourselves" },
-        { 19000, "Back to the top in a few seconds..." },
+        { 9000,  "Running on a Raspberry Pi's actual GPU" },
+        { 12000, "No pygame, no SDL, no Python in this part at all" },
+        { 15000, "Just EGL, GLES2, and a font atlas we baked ourselves" },
+        { 18000, "This line exists just to test the continuous left-aligned scroll" },
+        { 21000, "Watch how the current line stays higher in the frame" },
+        { 24000, "While upcoming lines wait below it" },
+        { 27000, "And already-sung lines scroll up and fade above" },
+        { 30000, "Almost done with this loop now" },
+        { 33000, "Back to the top in a few seconds..." },
     };
     const int LYRICS_COUNT = sizeof(LYRICS) / sizeof(LYRICS[0]);
-    const long SONG_DURATION_MS = 22000;
+    const long SONG_DURATION_MS = 36000;
+
+    static const QueueItem QUEUE[] = {
+        { "A Pretty Long Upcoming Song Title That Needs Truncating", "Some Artist" },
+        { "Second Track In The Queue", "Another Artist" },
+        { "Third One Coming Up", "Yet Another Artist" },
+        { "Fourth And Last Shown", "Final Artist" },
+        { "Fifth Track (never shown - past QUEUE_MAX_ITEMS)", "Overflow Artist" },
+    };
+    const int QUEUE_COUNT = sizeof(QUEUE) / sizeof(QUEUE[0]);
 
     TrackSnapshot snap = {
         .has_track = true,
@@ -101,7 +134,8 @@ int main(int argc, char **argv) {
     uint8_t *packed_buf = malloc(pixel_count * 4);
     if (!rgba_buf || !packed_buf) DIE("out of memory");
 
-    LOG("Starting lyrics UI test - simulating a %ldms song on loop, ~45s total...", SONG_DURATION_MS);
+    LOG("Starting lyrics UI test in %s mode - simulating a %ldms song on loop, ~45s total...",
+        queue_mode ? "QUEUE" : "CLASSIC", SONG_DURATION_MS);
 
     struct timespec last_time;
     clock_gettime(CLOCK_MONOTONIC, &last_time);
@@ -119,7 +153,11 @@ int main(int argc, char **argv) {
         snap.progress_ms = sim_time_ms % SONG_DURATION_MS;
 
         gpu_begin_frame(&gpu);
-        lyrics_render_frame(&renderer, panel.width, panel.height, dt, &snap, &lyrics_state);
+        if (queue_mode)
+            lyrics_render_frame_queue_mode(&renderer, panel.width, panel.height, dt, &snap, &lyrics_state,
+                                            QUEUE, QUEUE_COUNT);
+        else
+            lyrics_render_frame(&renderer, panel.width, panel.height, dt, &snap, &lyrics_state);
         gpu_end_frame(&gpu, rgba_buf);
 
         convert_rgba_for_panel(rgba_buf, panel.width, panel.height, panel.drm_format, packed_buf);

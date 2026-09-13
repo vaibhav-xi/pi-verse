@@ -15,6 +15,11 @@ static uint8_t *g_rgba_buf = NULL;
 static uint8_t *g_packed_buf = NULL;
 static struct timespec g_last_frame_time;
 static bool g_initialized = false;
+static PvDisplayMode g_display_mode = PV_MODE_CLASSIC;
+
+void pv_set_display_mode(PvDisplayMode mode) {
+    g_display_mode = mode;
+}
 
 int pv_init(const char *gpu_render_node, const char *panel_device, const char *font_path) {
     if (g_initialized) {
@@ -29,6 +34,7 @@ int pv_init(const char *gpu_render_node, const char *panel_device, const char *f
 
     g_pv_use_longjmp = true;
     if (setjmp(g_pv_error_jmp) != 0) {
+        
         free(auto_gpu);
         free(auto_panel);
         g_pv_use_longjmp = false;
@@ -101,7 +107,9 @@ int pv_render_frame(
     const char *plain_lyrics,
     bool instrumental,
     bool has_lyrics_data,
-    bool found
+    bool found,
+    const QueueItem *queue_items,
+    int queue_count
 ) {
     if (!g_initialized) { fprintf(stderr, "[piverse-gl] pv_render_frame() called before pv_init()\n"); return -1; }
 
@@ -134,7 +142,11 @@ int pv_render_frame(
     };
 
     gpu_begin_frame(&g_gpu);
-    lyrics_render_frame(&g_renderer, g_panel.width, g_panel.height, dt, &snap, &lyrics);
+    if (g_display_mode == PV_MODE_QUEUE)
+        lyrics_render_frame_queue_mode(&g_renderer, g_panel.width, g_panel.height, dt, &snap, &lyrics,
+                                        queue_items, queue_count);
+    else
+        lyrics_render_frame(&g_renderer, g_panel.width, g_panel.height, dt, &snap, &lyrics);
     gpu_end_frame(&g_gpu, g_rgba_buf);
 
     convert_rgba_for_panel(g_rgba_buf, g_panel.width, g_panel.height, g_panel.drm_format, g_packed_buf);

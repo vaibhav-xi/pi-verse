@@ -236,6 +236,37 @@ float font_measure_text(const Font *font, const char *utf8_text) {
     return width;
 }
 
+void font_truncate_text(const Font *font, const char *utf8_text, float max_width,
+                         char *out, size_t out_size) {
+    if (out_size == 0) return;
+
+    if (font_measure_text(font, utf8_text) <= max_width) {
+        snprintf(out, out_size, "%s", utf8_text);
+        return;
+    }
+
+    const char ellipsis[] = "...";
+    float ellipsis_width = font_measure_text(font, ellipsis);
+    float budget = max_width - ellipsis_width;
+
+    float width = 0.0f;
+    const char *s = utf8_text;
+    const char *last_good = utf8_text; /* longest prefix (byte pointer) that still fits */
+    while (*s) {
+        const char *before = s;
+        uint32_t cp = utf8_next_codepoint(&s);
+        if (cp == 0) break;
+        width += glyph_for(font, cp)->xadvance;
+        if (width > budget) { s = before; break; }
+        last_good = s;
+    }
+
+    size_t prefix_len = (size_t)(last_good - utf8_text);
+    if (prefix_len >= out_size) prefix_len = out_size - 1;
+    memcpy(out, utf8_text, prefix_len);
+    snprintf(out + prefix_len, out_size - prefix_len, "%s", ellipsis);
+}
+
 float font_draw_text(const Font *font, float x, float y, const char *utf8_text,
                       float r, float g, float b, float a) {
     size_t max_glyphs = strlen(utf8_text);

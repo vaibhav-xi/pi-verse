@@ -4,6 +4,7 @@
 #include "ui_scale.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
@@ -30,6 +31,17 @@
 #define TITLE_MAX_CHARS 29
 #define TITLE_SCROLL_SPEED 18.0f
 #define TITLE_SCROLL_PAUSE 3.0f
+
+/* ---- queue mode layout ---- */
+#define QUEUE_LEFT_FRACTION 0.68f   /* left (lyrics) column width as a fraction of screen_w */
+#define QUEUE_MARGIN 20.0f
+#define QUEUE_ABOVE_FRACTION 0.22f  /* fraction of the left column's height reserved above the current line */
+#define QUEUE_LINE_GAP 10.0f
+#define QUEUE_ART_TOP 16.0f
+#define QUEUE_SECTION_GAP 16.0f
+#define QUEUE_MAX_SCAN 24           /* how far past/before the current line to consider for the scroll window */
+#define QUEUE_MAX_ITEMS 4           /* upcoming-queue entries shown */
+#define QUEUE_ITEM_GAP 8.0f
 
 static float measure_wrapper(const void *font, const char *text) {
     return font_measure_text((const Font *)font, text);
@@ -248,5 +260,132 @@ void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt
     } else {
         draw_text_centered(&r->font_lyric_dim, "Loading lyrics...", (float)screen_w / 2.0f, center_y,
                             DIM_R, DIM_G, DIM_B, 1.0f);
+    }
+}
+
+#define QUEUE_SCAN_RADIUS 15 /* lines considered each side of current - generous vs. what can plausibly fit */
+
+void lyrics_render_frame_queue_mode(LyricsRenderer *r, int screen_w, int screen_h, float dt_seconds,
+                                     const TrackSnapshot *snap, const LyricsState *lyrics,
+                                     const QueueItem *queue_items, int queue_count) {
+    (void)dt_seconds; /* queue mode doesn't scroll the title (no room reserved for a header) */
+
+    glClearColor(BG_R, BG_G, BG_B, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    if (!snap || !snap->has_track) {
+        draw_text_centered(&r->font_title, "Nothing playing", (float)screen_w / 2.0f,
+                            (float)screen_h / 2.0f, DIM_R, DIM_G, DIM_B, 1.0f);
+        return;
+    }
+
+    float s = r->scale;
+    float margin = QUEUE_MARGIN * s;
+    float left_width = (float)screen_w * QUEUE_LEFT_FRACTION;
+    float right_x = left_width + margin;
+    float right_width = (float)screen_w - right_x - margin;
+    if (right_width < 10.0f) right_width = 10.0f; /* degenerate-aspect-ratio safety net */
+
+    /* ---- left column: lyrics, left-aligned, continuous scroll ---- */
+    if (lyrics && lyrics->instrumental) {
+        font_draw_text(&r->font_lyric_dim, margin, (float)screen_h / 2.0f, "(Instrumental)",
+                        DIM_R, DIM_G, DIM_B, 1.0f);
+    } else if (lyrics && lyrics->synced && lyrics->synced_count > 0) {
+        int idx = find_current_lyric_index(lyrics->synced, lyrics->synced_count, snap->progress_ms);
+
+        if (idx >= 0) {
+            float max_width = left_width - 2 * margin;
+            float line_height = r->font_lyric_dim.ascent - r->font_lyric_dim.descent;
+            float line_gap = QUEUE_LINE_GAP * s;
+
+            int scan_before = idx < QUEUE_SCAN_RADIUS ? idx : QUEUE_SCAN_RADIUS;
+            int scan_after = (lyrics->synced_count - 1 - idx) < QUEUE_SCAN_RADIUS
+                                  ? (lyrics->synced_count - 1 - idx) : QUEUE_SCAN_RADIUS;
+            int cand_count = scan_before + scan_after + 1;
+
+            ScrollLine cands[QUEUE_SCAN_RADIUS * 2 + 1];
+            WrappedText *wrapped = malloc(sizeof(WrappedText) * (size_t)cand_count);
+
+            if (wrapped) {
+                for (int k = 0; k < cand_count; k++) {
+                    int offset = k - scan_before;
+                    int i = idx + offset;
+                    wrap_lyric_line(&r->font_lyric_dim, measure_wrapper, lyrics->synced[i].text,
+                                     max_width, line_height, line_gap, &wrapped[k]);
+                    cands[k].index = offset;
+                    cands[k].height = wrapped[k].total_height > 0 ? wrapped[k].total_height : line_height;
+                    cands[k].visible = false;
+                    cands[k].y_offset = 0;
+                }
+
+                float available_height = (float)screen_h - 2 * margin;
+                float above_budget = available_height * QUEUE_ABOVE_FRACTION;
+                float below_budget = available_height - above_budget;
+
+                layout_scroll_window(cands, cand_count, line_gap, above_budget, below_budget);
+
+                for (int k = 0; k < cand_count; k++) {
+                    if (!cands[k].visible) continue;
+                    bool is_current = (cands[k].index == 0);
+                    float rr = is_current ? TEXT_R : DIM_R;
+                    float gg = is_current ? TEXT_G : DIM_G;
+                    float bb = is_current ? TEXT_B : DIM_B;
+
+                    float y = margin + cands[k].y_offset;
+                    float spacing = (line_height - 3.0f) > line_gap ? (line_height - 3.0f) : line_gap;
+                    for (int wl = 0; wl < wrapped[k].line_count; wl++) {
+                        float baseline_y = y + r->font_lyric_dim.ascent;
+                        font_draw_text(&r->font_lyric_dim, margin, baseline_y, wrapped[k].lines[wl],
+                                       rr, gg, bb, 1.0f);
+                        y += spacing;
+                    }
+                }
+                free(wrapped);
+            }
+        }
+    } else if (lyrics && lyrics->plain) {
+        font_draw_text(&r->font_lyric_dim, margin, (float)screen_h / 2.0f, "Lyrics found (not time-synced)",
+                        DIM_R, DIM_G, DIM_B, 1.0f);
+    } else if (lyrics && lyrics->has_data && !lyrics->found) {
+        font_draw_text(&r->font_lyric_dim, margin, (float)screen_h / 2.0f, "No lyrics found",
+                        DIM_R, DIM_G, DIM_B, 1.0f);
+    } else {
+        font_draw_text(&r->font_lyric_dim, margin, (float)screen_h / 2.0f, "Loading lyrics...",
+                        DIM_R, DIM_G, DIM_B, 1.0f);
+    }
+
+    /* ---- right column: album art, title/artist, upcoming queue ---- */
+    float art_size = right_width;
+    if (art_size > (float)screen_h * 0.5f) art_size = (float)screen_h * 0.5f;
+    float y = QUEUE_ART_TOP * s;
+
+    if (r->album_art_loaded)
+        gfx_draw_textured_rect(r->album_art.texture, right_x, y, art_size, art_size, 1.0f);
+    y += art_size + QUEUE_SECTION_GAP * s;
+
+    if (snap->track_name && snap->track_name[0]) {
+        char truncated[256];
+        font_truncate_text(&r->font_artist, snap->track_name, right_width, truncated, sizeof(truncated));
+        float baseline_y = y + r->font_artist.ascent;
+        font_draw_text(&r->font_artist, right_x, baseline_y, truncated, TEXT_R, TEXT_G, TEXT_B, 1.0f);
+        y += (r->font_artist.ascent - r->font_artist.descent) + 4.0f * s;
+    }
+    if (snap->artist_name && snap->artist_name[0]) {
+        char truncated[256];
+        font_truncate_text(&r->font_lyric_dim, snap->artist_name, right_width, truncated, sizeof(truncated));
+        float baseline_y = y + r->font_lyric_dim.ascent;
+        font_draw_text(&r->font_lyric_dim, right_x, baseline_y, truncated, DIM_R, DIM_G, DIM_B, 1.0f);
+        y += (r->font_lyric_dim.ascent - r->font_lyric_dim.descent) + QUEUE_SECTION_GAP * s;
+    }
+
+    int shown = queue_count < QUEUE_MAX_ITEMS ? queue_count : QUEUE_MAX_ITEMS;
+    for (int i = 0; i < shown; i++) {
+        if (!queue_items[i].track_name) continue;
+        if (y > (float)screen_h - margin) break; /* out of vertical room */
+        char truncated[256];
+        font_truncate_text(&r->font_lyric_dim, queue_items[i].track_name, right_width, truncated, sizeof(truncated));
+        float baseline_y = y + r->font_lyric_dim.ascent;
+        font_draw_text(&r->font_lyric_dim, right_x, baseline_y, truncated, DIM_R, DIM_G, DIM_B, 1.0f);
+        y += (r->font_lyric_dim.ascent - r->font_lyric_dim.descent) + QUEUE_ITEM_GAP * s;
     }
 }

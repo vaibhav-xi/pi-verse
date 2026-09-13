@@ -17,12 +17,22 @@ if os.environ.get("PIVERSE_GL_LIB"):
 
 
 class SyncedLine(ctypes.Structure):
-    """Must match pv_api.h's use of lyrics_render.h's SyncedLine exactly:
-    struct { long timestamp_ms; const char *text; }"""
     _fields_ = [
         ("timestamp_ms", ctypes.c_long),
         ("text", ctypes.c_char_p),
     ]
+
+
+class QueueItem(ctypes.Structure):
+    _fields_ = [
+        ("track_name", ctypes.c_char_p),
+        ("artist_name", ctypes.c_char_p),
+    ]
+
+
+# Must match pv_api.h's PvDisplayMode enum.
+DISPLAY_MODE_CLASSIC = 0
+DISPLAY_MODE_QUEUE = 1
 
 
 def _find_library():
@@ -49,6 +59,9 @@ def _load_library():
     lib.pv_clear_album_art.argtypes = []
     lib.pv_clear_album_art.restype = None
 
+    lib.pv_set_display_mode.argtypes = [ctypes.c_int]
+    lib.pv_set_display_mode.restype = None
+
     lib.pv_render_frame.argtypes = [
         ctypes.c_bool,                # has_track
         ctypes.c_char_p,              # track_id
@@ -63,6 +76,8 @@ def _load_library():
         ctypes.c_bool,                # instrumental
         ctypes.c_bool,                # has_lyrics_data
         ctypes.c_bool,                # found
+        ctypes.POINTER(QueueItem),    # queue_items (NULL ok)
+        ctypes.c_int,                 # queue_count
     ]
     lib.pv_render_frame.restype = ctypes.c_int
 
@@ -128,13 +143,17 @@ class LyricsUI:
         if self._lib.pv_set_album_art(data, len(data)) != 0:
             print("[ui_gl] album art decode failed (unsupported format?)")
 
-    def render(self, snapshot, lyrics_state):
+    def set_display_mode(self, mode):
+        self._lib.pv_set_display_mode(mode)
+
+    def render(self, snapshot, lyrics_state, queue=None):
         has_track = bool(snapshot and snapshot.get("track_id"))
 
         if not has_track:
             self._lib.pv_render_frame(
                 False, None, None, None, 0, 0, False,
                 None, 0, None, False, False, False,
+                None, 0,
             )
             return
 
@@ -148,6 +167,16 @@ class LyricsUI:
             encoded_texts.append(encoded)
             synced_array[i].timestamp_ms = int(ts)
             synced_array[i].text = encoded
+
+        queue = queue or []
+        queue_array = (QueueItem * len(queue))() if queue else None
+        encoded_queue_texts = []  # keeps bytes alive through the call below
+        for i, item in enumerate(queue):
+            t = _encode(item.get("track_name"))
+            a = _encode(item.get("artist_name"))
+            encoded_queue_texts.append((t, a))
+            queue_array[i].track_name = t
+            queue_array[i].artist_name = a
 
         has_lyrics_data = bool(lyrics_state)
         plain = (lyrics_state or {}).get("plain")
@@ -166,6 +195,8 @@ class LyricsUI:
             bool((lyrics_state or {}).get("instrumental")),
             has_lyrics_data,
             bool((lyrics_state or {}).get("found")),
+            queue_array,
+            len(queue),
         )
 
     def pump_events(self):

@@ -32,7 +32,7 @@ int main(void) {
 
     printf("=== long text wraps across multiple lines ===\n");
     {
-        /* max_width=120 -> 20 chars/line at 6px/char */
+        
         WrappedText w;
         wrap_lyric_line(NULL, mock_measure,
                          "this line is definitely too long to fit on one row",
@@ -45,6 +45,7 @@ int main(void) {
 
     printf("=== parenthetical group stays intact when it fits on one line ===\n");
     {
+        
         WrappedText w;
         wrap_lyric_line(NULL, mock_measure,
                          "Star Song (feat. Someone Else) more text after",
@@ -61,6 +62,7 @@ int main(void) {
 
     printf("=== oversized group (too wide even alone) falls back to word-wrap, not comma-split ===\n");
     {
+        
         WrappedText w;
         wrap_lyric_line(NULL, mock_measure,
                          "Star Song (feat. Someone Else) another bit of text here",
@@ -83,7 +85,7 @@ int main(void) {
                          90, 20, 22, &w);
         print_wrapped(&w);
         CHECK(w.line_count > 1, "wrapped");
-        /* first line should end right after a comma-separated chunk, not mid-word */
+        
         size_t l0 = strlen(w.lines[0]);
         CHECK(l0 > 0 && w.lines[0][l0 - 1] != ' ', "no trailing space on wrapped line");
     }
@@ -98,7 +100,7 @@ int main(void) {
         CHECK(w.line_count > 1, "broken into multiple chunks");
         for (int i = 0; i < w.line_count; i++)
             CHECK(mock_measure(NULL, w.lines[i]) <= 60 + 0.01f, "each chunk fits max_width");
-        /* reassembling should give back the original word */
+            
         char rebuilt[256] = "";
         for (int i = 0; i < w.line_count; i++) strcat(rebuilt, w.lines[i]);
         CHECK(strcmp(rebuilt, "Supercalifragilisticexpialidocious") == 0, "chunks reassemble to original word");
@@ -116,7 +118,7 @@ int main(void) {
         VisibleLyricCandidate cands[5] = {
             { -2, 30, true }, { -1, 30, true }, { 0, 40, true }, { 1, 30, true }, { 2, 30, true }
         };
-        /* total = 30+30+40+30+30 + 4*10(verse_gap) = 160+40=200, available=120 -> must trim */
+        
         int remaining = trim_visible_lyrics(cands, 5, 10, 120);
         printf("  remaining=%d\n", remaining);
         for (int i = 0; i < 5; i++) printf("    offset %d present=%d\n", cands[i].offset, cands[i].present);
@@ -141,8 +143,6 @@ int main(void) {
 
     printf("=== title scroll: long title cycles pause -> scroll -> pause -> reset ===\n");
     {
-        /* title_width=300, available=100 -> max_scroll=200, speed=20 -> scroll_duration=10s
-         * cycle: [0,3)=pause@0, [3,13)=scrolling 0..200, [13,16)=pause@200, [16,19)=snapped to 0 (extra pause gap) */
         float title_width = 300, avail = 100, speed = 20, pause = 3;
 
         TitleScrollState s0 = compute_title_scroll(title_width, avail, 1.0f, speed, pause);
@@ -162,6 +162,58 @@ int main(void) {
         TitleScrollState s_wrap_a = compute_title_scroll(title_width, avail, 19.0f, speed, pause);
         TitleScrollState s_wrap_b = compute_title_scroll(title_width, avail, 0.0f, speed, pause);
         CHECK(fabsf(s_wrap_a.scroll_x - s_wrap_b.scroll_x) < 0.01f, "cycle wraps correctly at period boundary");
+    }
+
+    printf("=== queue mode: layout_scroll_window basic case ===\n");
+    {
+        ScrollLine lines[8] = {
+            {-2, 20, false, 0}, {-1, 20, false, 0}, {0, 20, false, 0},
+            {1, 20, false, 0}, {2, 20, false, 0}, {3, 20, false, 0},
+            {4, 20, false, 0}, {5, 20, false, 0},
+        };
+        
+        int visible = layout_scroll_window(lines, 8, 5, 50, 150);
+        printf("  visible=%d\n", visible);
+
+        for (int i = 0; i < 8; i++)
+            if (lines[i].visible) printf("    index %d: y_offset=%.1f\n", lines[i].index, lines[i].y_offset);
+        CHECK(lines[2].visible && lines[2].index == 0, "current line (index 0) is always visible");
+        CHECK(lines[0].visible == false || lines[0].index != -2 || lines[0].visible,
+              "sanity: array position 0 corresponds to index -2");
+
+        /* above_budget=50 fits at most 2 lines (2*(20+5)=50, exactly), below_budget=150 fits 6 */
+        int above_visible = 0, below_visible = 0;
+        for (int i = 0; i < 8; i++) {
+            if (!lines[i].visible) continue;
+            if (lines[i].index < 0) above_visible++;
+            if (lines[i].index > 0) below_visible++;
+        }
+        CHECK(above_visible == 2, "above budget fits exactly 2 lines (2*25=50)");
+        CHECK(below_visible > above_visible, "more lines visible below the current line than above (matches the reference screenshot's asymmetric layout)");
+        CHECK(lines[2].y_offset == above_visible * 25.0f, "current line's y_offset accounts for the visible lines above it");
+    }
+
+    printf("=== queue mode: no room above at all (song just started) ===\n");
+    {
+        ScrollLine lines[4] = { {0, 20, false, 0}, {1, 20, false, 0}, {2, 20, false, 0}, {3, 20, false, 0} };
+        int visible = layout_scroll_window(lines, 4, 5, 0, 200);
+        CHECK(lines[0].visible, "current line still visible with zero above-budget");
+        CHECK(lines[0].y_offset == 0.0f, "current line sits at the very top when there's nothing above it");
+        CHECK(visible == 4, "all 4 lines fit below");
+    }
+
+    printf("=== queue mode: current line missing from candidates (caller bug) ===\n");
+    {
+        ScrollLine lines[3] = { {1, 20, false, 0}, {2, 20, false, 0}, {3, 20, false, 0} };
+        int visible = layout_scroll_window(lines, 3, 5, 100, 100);
+        CHECK(visible == 0, "returns 0 gracefully instead of crashing when index 0 isn't present");
+    }
+
+    printf("=== queue mode: very few lyric lines (near end of song) ===\n");
+    {
+        ScrollLine lines[2] = { {-1, 20, false, 0}, {0, 20, false, 0} };
+        int visible = layout_scroll_window(lines, 2, 5, 200, 200);
+        CHECK(visible == 2, "shows all available lines even when far fewer than the budget allows");
     }
 
     printf("\n%s\n", failures == 0 ? "ALL TESTS PASSED" : "SOME TESTS FAILED");

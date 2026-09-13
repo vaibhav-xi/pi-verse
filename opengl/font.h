@@ -1,8 +1,8 @@
-
 #ifndef FONT_H
 #define FONT_H
 
 #include <GLES2/gl2.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -33,10 +33,11 @@ void font_free(Font *font);
 float font_draw_text(const Font *font, float x, float y, const char *utf8_text,
                       float r, float g, float b, float a);
 
-/* Width in pixels of utf8_text if drawn with this font. Doesn't touch GL. */
 float font_measure_text(const Font *font, const char *utf8_text);
 
-/* Fills an axis-aligned rectangle with a solid color (no texture). */
+void font_truncate_text(const Font *font, const char *utf8_text, float max_width,
+                         char *out, size_t out_size);
+
 void gfx_fill_rect(float x, float y, float w, float h, float r, float g, float b, float a);
 
 void gfx_draw_textured_rect(GLuint texture_id, float x, float y, float w, float h, float alpha);

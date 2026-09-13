@@ -49,8 +49,18 @@ bool lyrics_renderer_init(LyricsRenderer *r, const char *font_path, int screen_w
 bool lyrics_renderer_set_album_art(LyricsRenderer *r, const uint8_t *img_data, size_t img_size);
 void lyrics_renderer_clear_album_art(LyricsRenderer *r);
 
+typedef struct {
+    const char *track_name;
+    const char *artist_name;
+} QueueItem;
+
+
 void lyrics_render_frame(LyricsRenderer *r, int screen_w, int screen_h, float dt_seconds,
                           const TrackSnapshot *snap, const LyricsState *lyrics);
+
+void lyrics_render_frame_queue_mode(LyricsRenderer *r, int screen_w, int screen_h, float dt_seconds,
+                                     const TrackSnapshot *snap, const LyricsState *lyrics,
+                                     const QueueItem *queue_items, int queue_count);
 
 void lyrics_renderer_free(LyricsRenderer *r);
 

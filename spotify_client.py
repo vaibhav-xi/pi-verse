@@ -36,6 +36,9 @@ class SpotifyState:
         self.album_art_url = None
         self._last_poll_monotonic = 0.0
 
+        self.queue = []
+        self._queue_unavailable = False  # set True after a 403 (Premium-only endpoint)
+
     def ensure_authenticated(self):
         """One-time interactive login. Run this once - after
         that the cached token refreshes itself automatically."""
@@ -107,12 +110,52 @@ class SpotifyState:
                 "album_art_url": self.album_art_url,
             }
 
+    def poll_queue(self):
+        if self._queue_unavailable:
+            return
+
+        try:
+            data = self.sp.queue()
+        except spotipy.SpotifyException as exc:
+            if exc.http_status == 403:
+                print("[spotify] queue endpoint returned 403 (likely a free/non-Premium "
+                      "account - this endpoint is Premium-only). Won't retry this session; "
+                      "queue-mode display will just show no upcoming tracks.")
+                self._queue_unavailable = True
+            else:
+                print(f"[spotify] queue poll error: {exc}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            print(f"[spotify] queue poll error: {exc}")
+            return
+
+        items = (data or {}).get("queue", [])
+        with self._lock:
+            self.queue = [
+                {
+                    "track_name": item.get("name", ""),
+                    "artist_name": ", ".join(a["name"] for a in item.get("artists", [])),
+                }
+                for item in items
+                if item.get("type") == "track"  # skip podcast episodes - different shape
+            ]
+
+    def get_queue_snapshot(self):
+        with self._lock:
+            return list(self.queue)
+
     def run_poll_loop(self, on_track_change):
+        last_queue_poll = 0.0
         while not self._stop:
             try:
                 changed = self.poll_once()
                 if changed:
                     on_track_change(self.get_snapshot())
+
+                now = time.monotonic()
+                if now - last_queue_poll > 5.0:
+                    self.poll_queue()
+                    last_queue_poll = now
             except Exception as exc:  # noqa: BLE001
                 print(f"[spotify] poll loop error: {exc}")
             time.sleep(config.POLL_INTERVAL_SEC)

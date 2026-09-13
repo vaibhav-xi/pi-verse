@@ -1,4 +1,3 @@
-
 #ifndef LYRICS_LAYOUT_H
 #define LYRICS_LAYOUT_H
 
@@ -39,5 +38,15 @@ typedef struct {
 TitleScrollState compute_title_scroll(float title_width, float available_width,
                                        float elapsed_seconds, float scroll_speed,
                                        float pause_seconds);
+
+typedef struct {
+    int index;       /* offset from the current line: ..., -1, 0, +1, ... */
+    float height;      /* wrapped block height at this mode's font/width */
+    bool visible;        /* filled in by layout_scroll_window() */
+    float y_offset;       /* filled in: px from the top of the visible block */
+} ScrollLine;
+
+int layout_scroll_window(ScrollLine *candidates, int count, float line_gap,
+                          float above_budget, float below_budget);
 
 #endif

@@ -312,3 +312,43 @@ TitleScrollState compute_title_scroll(float title_width, float available_width,
     }
     return st;
 }
+
+int layout_scroll_window(ScrollLine *candidates, int count, float line_gap,
+                          float above_budget, float below_budget) {
+    int center_pos = -1;
+    for (int i = 0; i < count; i++) {
+        candidates[i].visible = false;
+        if (candidates[i].index == 0) center_pos = i;
+    }
+    if (center_pos < 0) return 0; /* caller error: no current line present */
+
+    candidates[center_pos].visible = true;
+
+    int first_visible = center_pos;
+    float used = 0.0f;
+    for (int i = center_pos - 1; i >= 0; i--) {
+        used += candidates[i].height + line_gap;
+        if (used > above_budget) break;
+        candidates[i].visible = true;
+        first_visible = i;
+    }
+
+    int last_visible = center_pos;
+    used = 0.0f;
+    for (int i = center_pos + 1; i < count; i++) {
+        used += candidates[i].height + line_gap;
+        if (used > below_budget) break;
+        candidates[i].visible = true;
+        last_visible = i;
+    }
+
+    float y = 0.0f;
+    int visible_count = 0;
+    for (int i = first_visible; i <= last_visible; i++) {
+        if (!candidates[i].visible) continue;
+        candidates[i].y_offset = y;
+        y += candidates[i].height + line_gap;
+        visible_count++;
+    }
+    return visible_count;
+}
