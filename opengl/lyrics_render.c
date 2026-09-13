@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 
+/* ---- colors, matching ui.py exactly (converted from 0-255 to 0-1) ---- */
 #define BG_R (10/255.0f)
 #define BG_G (10/255.0f)
 #define BG_B (14/255.0f)
@@ -37,6 +38,7 @@
 #define QUEUE_ABOVE_FRACTION 0.22f  /* fraction of the left column's height reserved above the current line */
 #define QUEUE_LINE_GAP 10.0f
 #define QUEUE_ART_TOP 16.0f
+#define QUEUE_ART_FRACTION 0.55f    /* main "now playing" art as a fraction of the right column's width - */
 #define QUEUE_SECTION_GAP 16.0f
 #define QUEUE_MAX_SCAN 24           /* how far past/before the current line to consider for the scroll window */
 #define QUEUE_MAX_ITEMS 2           /* upcoming-queue entries shown - each gets its own thumbnail now */
@@ -371,8 +373,8 @@ void lyrics_render_frame_queue_mode(LyricsRenderer *r, int screen_w, int screen_
     }
 
     /* ---- right column: album art, title/artist, upcoming queue ---- */
-    float art_size = right_width;
-    if (art_size > (float)screen_h * 0.5f) art_size = (float)screen_h * 0.5f;
+    float art_size = right_width * QUEUE_ART_FRACTION;
+    if (art_size > (float)screen_h * 0.4f) art_size = (float)screen_h * 0.4f;
     float y = QUEUE_ART_TOP * s;
 
     if (r->album_art_loaded)
