@@ -38,7 +38,7 @@
 #define QUEUE_ABOVE_FRACTION 0.22f  /* fraction of the left column's height reserved above the current line */
 #define QUEUE_LINE_GAP 10.0f
 #define QUEUE_ART_TOP 16.0f
-#define QUEUE_ART_FRACTION 0.55f    /* main "now playing" art as a fraction of the right column's width - */
+#define QUEUE_ART_FRACTION 0.7f    /* main "now playing" art as a fraction of the right column's width - */
 #define QUEUE_SECTION_GAP 16.0f
 #define QUEUE_MAX_SCAN 24           /* how far past/before the current line to consider for the scroll window */
 #define QUEUE_MAX_ITEMS 2           /* upcoming-queue entries shown - each gets its own thumbnail now */

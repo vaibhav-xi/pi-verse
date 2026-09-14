@@ -11,7 +11,7 @@
 #define FONT_EXTRA_FIRST_CODEPOINT 0x2013 /* EN DASH */
 #define FONT_EXTRA_NUM_CODEPOINTS  0x14   /* through 0x2026 HORIZONTAL ELLIPSIS inclusive */
 #define FONT_NOTE_CODEPOINT 0x266A         /* EIGHTH NOTE - synthesized, see note_icon.h */
-#define FONT_ATLAS_SIZE      512  /* atlas bitmap is FONT_ATLAS_SIZE^2, 1 channel */
+#define FONT_ATLAS_SIZE      1024  /* atlas bitmap is FONT_ATLAS_SIZE^2, 1 channel */
 
 typedef struct {
     GLuint texture;
